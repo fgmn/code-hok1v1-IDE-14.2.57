@@ -9,7 +9,6 @@ Author: Tencent AI Arena Authors
 
 
 class GameConfig:
-
     """
     Specify the training lineup in CAMP_HEROES. The battle lineup will be paired in all possible combinations.
     To train a single agent, comment out the other agents.
@@ -26,8 +25,8 @@ class GameConfig:
     """
     CAMP_HEROES = [
         [{"hero_id": 133}],
-        [{"hero_id": 199}],
-        [{"hero_id": 508}],
+        # [{"hero_id": 199}],
+        # [{"hero_id": 508}],
     ]
     # Set the weight of each reward item and use it in reward_manager
     # 设置各个回报项的权重，在reward_manager中使用
@@ -38,17 +37,22 @@ class GameConfig:
         "exp": 0.006,
         "ep_rate": 0.75,
         "death": -1.0,
-        "kill": -0.6,
+        "kill": 0.6,    # fixed
         "last_hit": 0.5,
         "forward": 0.01,
+        "total_damage": 0.1,
+        "hero_hurt": -0.1,
+        "hero_damage": 0.30,
+        "no_ops": -0.001,
+        "in_grass": 0.001,
     }
     # Time decay factor, used in reward_manager
     # 时间衰减因子，在reward_manager中使用
-    TIME_SCALE_ARG = 0
+    TIME_SCALE_ARG = 20000
     # Evaluation frequency and model save interval configuration, used in workflow
     # 评估频率和模型保存间隔配置，在workflow中使用
-    EVAL_FREQ = 10
-    MODEL_SAVE_INTERVAL = 1800
+    EVAL_FREQ = 30
+    MODEL_SAVE_INTERVAL = 600
 
 
 # Dimension configuration, used when building the model
@@ -75,6 +79,7 @@ class DimConfig:
 # Configuration related to model and algorithms used
 # 模型和算法使用的相关配置
 class Config:
+    LOAD_MODEL_ID = None              # 加载模型ID，不加载写None
     NETWORK_NAME = "network"
     LSTM_TIME_STEPS = 16
     LSTM_UNIT_SIZE = 512

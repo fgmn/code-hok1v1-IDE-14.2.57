@@ -200,6 +200,7 @@ class Model(nn.Module):
 
         # feature_vec_split
         # 特征向量分割
+        # 分割成英雄、士兵、防御塔和全局信息四个部分
         feature_vec_split_list = feature_vec.split(
             [
                 self.all_hero_feature_dim,
@@ -340,6 +341,7 @@ class Model(nn.Module):
         tar_embed_8 = 0.1 * torch.ones_like(tar_embed_list[-1]).to(feature_vec.device)
         tar_embed_list.append(tar_embed_8)
 
+        # 将英雄池化结果、小兵池化结果、建筑池化结果、主英雄特征、全局信息按顺序拼接成一个长度为 concat_dim 的大向量。
         concat_result = torch.cat(
             [
                 reshape_pool_frd_soldier,
@@ -410,6 +412,7 @@ class Model(nn.Module):
             return result_list
 
     def compute_loss(self, data_list, rst_list):
+        # seri_vec=feature(725)+legal_action(85)
         seri_vec = data_list[0].reshape(-1, self.data_split_shape[0])
         usq_reward = data_list[1].reshape(-1, self.data_split_shape[1])
         usq_advantage = data_list[2].reshape(-1, self.data_split_shape[2])
@@ -467,7 +470,7 @@ class Model(nn.Module):
         # loss of value net
         # 值网络的损失
         fc2_value_result_squeezed = value_result.squeeze(dim=1)
-        self.value_cost = 0.5 * torch.mean(torch.square(reward - fc2_value_result_squeezed), dim=0)
+        # self.value_cost = 0.5 * torch.mean(torch.square(reward - fc2_value_result_squeezed), dim=0)
         new_advantage = reward - fc2_value_result_squeezed
         self.value_cost = 0.5 * torch.mean(torch.square(new_advantage), dim=0)
 
@@ -483,6 +486,7 @@ class Model(nn.Module):
         # 策略损失：PPO剪辑损失
         self.policy_cost = torch.tensor(0.0)
         for task_index in range(len(self.is_reinforce_task_list)):
+            # 多个任务的损失累加起来
             if self.is_reinforce_task_list[task_index]:
                 final_log_p = torch.tensor(0.0)
                 boundary = torch.pow(torch.tensor(10.0), torch.tensor(20.0))

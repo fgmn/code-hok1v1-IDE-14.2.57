@@ -62,6 +62,7 @@ class Agent(BaseAgent):
         parameters = self.model.parameters()
         self.optimizer = torch.optim.Adam(params=parameters, lr=initial_lr, betas=(0.9, 0.999), eps=1e-8)
         self.parameters = [p for param_group in self.optimizer.param_groups for p in param_group["params"]]
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(self.optimizer, mode='min', factor=0.98, patience=1000, min_lr=5.0e-5)
 
         # tools
         self.reward_manager = None
@@ -69,6 +70,12 @@ class Agent(BaseAgent):
         self.monitor = monitor
 
         super().__init__(agent_type, device, logger, monitor)
+        if Config.LOAD_MODEL_ID:
+            logger.info("Loading pre-trained model...")
+            self.__load_model(
+                path="/data/projects/hok1v1/ckpt",
+                id=Config.LOAD_MODEL_ID,
+            )
 
     def _model_inference(self, list_obs_data):
         # 使用网络进行推理
@@ -211,7 +218,7 @@ class Agent(BaseAgent):
         self.model.set_train_mode()
         self.optimizer.zero_grad()
 
-        rst_list = self.model(format_inputs)
+        rst_list = self.model(format_inputs) # 返回预测的 logits, value, 新的 lstm 状态等
         total_loss, info_list = self.model.compute_loss(data_list, rst_list)
         results["total_loss"] = total_loss.item()
 
@@ -223,6 +230,9 @@ class Agent(BaseAgent):
 
         self.optimizer.step()
         self.train_step += 1
+
+        # 更新学习率
+        self.scheduler.step(results["total_loss"])
 
         _info_list = []
         for info in info_list:
@@ -264,6 +274,20 @@ class Agent(BaseAgent):
             )
             self.cur_model_name = model_file_path
             self.logger.info(f"load model {model_file_path} successfully")
+
+    # train_test时使用
+    def __load_model(self, path=None, id="1"):
+        model_file_path = f"{path}/model.ckpt-{str(id)}.pkl"
+        try:
+            self.model.load_state_dict(
+                torch.load(
+                    model_file_path,
+                    map_location=torch.device('cpu'),
+                )
+            )
+            self.logger.info(f"load model {model_file_path} successfully")
+        except FileNotFoundError:
+            self.logger.info(f"File {model_file_path} not found")
 
     def reset(self, hero_camp, player_id):
         self.hero_camp = hero_camp

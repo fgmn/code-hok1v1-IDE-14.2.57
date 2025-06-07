@@ -72,9 +72,63 @@ class GameRewardManager:
         self.get_reward(frame_data, self.m_reward_value)
 
         frame_no = frame_data["frameNo"]
+        # if self.time_scale_arg > 0:
+        #     for key in self.m_reward_value:
+        #         self.m_reward_value[key] *= math.pow(0.6, 1.0 * frame_no / self.time_scale_arg)
+        
+# REWARD_WEIGHT_DICT = {
+#     "hp_point": 2.0,
+#     "tower_hp_point": 5.0,
+#     "money": 0.006,
+#     "exp": 0.006,
+#     "ep_rate": 0.75,
+#     "death": -1.0,
+#     "kill": -0.6,
+#     "last_hit": 0.5,
+#     "forward": 0.01,
+#     "total_damage": 0.1,
+#     "hero_hurt": -0.1,
+#     "hero_damage": 0.30,
+#     "no_ops": -0.001,
+#     "in_grass": 0.001,
+# }
+
+        # 奖励分阶段（前期注重发育，后期注重推塔，KDA）
+        # 1820步为一分钟
+        if frame_no <= 5000:
+            self.m_reward_value["money"] *= 1.2
+            self.m_reward_value["exp"] *= 1.2
+        elif frame_no <= 10000:
+            self.m_reward_value["tower_hp_point"] *= 1.2
+            self.m_reward_value["kill"] *= 1.2
+            self.m_reward_value["death"] *= 1.2
+            self.m_reward_value["hp_point"] *= 1.2
+        else:
+            self.m_reward_value["tower_hp_point"] *= 1.5
+            self.m_reward_value["kill"] *= 1.5
+            self.m_reward_value["death"] *= 1.5
+            self.m_reward_value["money"] *= 0.8
+            self.m_reward_value["exp"] *= 0.8
+
+        # 局内奖励随时间衰减
         if self.time_scale_arg > 0:
+            no_decay_keys = {"hp_point", "tower_hp_point", "kill", "death"}
+            decay_factor = math.pow(0.6, frame_no / self.time_scale_arg)
             for key in self.m_reward_value:
-                self.m_reward_value[key] *= math.pow(0.6, 1.0 * frame_no / self.time_scale_arg)
+                if key not in no_decay_keys:
+                    self.m_reward_value[key] *= decay_factor
+
+        # 计算reward_sum
+        tmp_sum = 0
+        for key in self.m_reward_value:
+            tmp_sum += self.m_reward_value[key]
+        self.m_reward_value["reward_sum"] = tmp_sum
+
+        # # 打印奖励信息
+        # print(f"\033[92mFrame No: {frame_no}, Reward Values:\033[0m")
+        # for key, value in self.m_reward_value.items():
+        #     print(f"{key}: {value:.4f}")
+
 
         return self.m_reward_value
 
@@ -170,6 +224,29 @@ class GameRewardManager:
             # 前进
             elif reward_name == "forward":
                 reward_struct.cur_frame_value = self.calculate_forward(main_hero, main_tower, enemy_tower)
+            # 对英雄伤害输出，防止立正挨打
+            elif reward_name == "hero_damage":
+                reward_struct.cur_frame_value = main_hero["totalHurtToHero"] / 2e4  # 归一化 default:2e4
+            # 承受英雄伤害
+            elif reward_name == "hero_hurt":
+                reward_struct.cur_frame_value = main_hero["totalBeHurtByHero"] / 2e4
+            # 总输出
+            elif reward_name == "total_damage":
+                reward_struct.cur_frame_value = main_hero["totalHurt"] / 6e4    # default:6e4
+            # 没有动作
+            elif reward_name == "no_ops":
+                if main_hero["actor_state"]["behav_mode"] == "State_Idle":
+                    reward_struct.cur_frame_value = True
+                else:
+                    reward_struct.cur_frame_value = False
+            # 英雄是否在草丛中
+            elif reward_name == "in_grass":
+                if main_hero["isInGrass"]:
+                    reward_struct.cur_frame_value = True
+                else:
+                    reward_struct.cur_frame_value = False
+
+
 
     # Calculate the total amount of experience gained using agent level and current experience value
     # 用智能体等级和当前经验值，计算获得经验值的总量
@@ -217,6 +294,7 @@ class GameRewardManager:
         reward_sum, weight_sum = 0.0, 0.0
         for reward_name, reward_struct in self.m_cur_calc_frame_map.items():
             if reward_name == "hp_point":
+                # 如果己方血量比敌方下降得更少，则带来正收益；反之则负收益。（零和模式）
                 if (
                     self.m_main_calc_frame_map[reward_name].last_frame_value == 0.0
                     and self.m_enemy_calc_frame_map[reward_name].last_frame_value == 0.0
@@ -267,6 +345,40 @@ class GameRewardManager:
                 reward_struct.value = self.m_main_calc_frame_map[reward_name].cur_frame_value
             elif reward_name == "last_hit":
                 reward_struct.value = self.m_main_calc_frame_map[reward_name].cur_frame_value
+            elif reward_name == "no_ops":
+                # “无操作”惩罚
+                reward_struct.value = 1.0 if self.m_main_calc_frame_map["no_ops"].cur_frame_value else 0.0
+            elif reward_name == "in_grass":
+                # 蹲草当“老六”
+                if not self.m_main_calc_frame_map["in_grass"].cur_frame_value:
+                    reward_struct.value = 0.0
+                else:
+                    # 基础奖励：在草丛中 0.25
+                    val = 0.25
+
+                    # 用 next(...) 快速找到主英雄和敌英雄
+                    main_hero = next(h for h in frame_data["hero_states"]
+                                    if h["player_id"] == self.main_hero_player_id)
+                    enemy_hero = next(h for h in frame_data["hero_states"]
+                                    if h["player_id"] != self.main_hero_player_id)
+
+                    # 1) “偷袭可见性” 条件：自己不可见且敌人可见 -> +0.5
+                    # 可见阵营，camp_visible[0]表示是否蓝方可见，camp_visible[1]表示是否红方可见
+                    main_vis_all = all(main_hero["actor_state"]["camp_visible"])
+                    enemy_vis_all = all(enemy_hero["actor_state"]["camp_visible"])
+                    if not main_vis_all and enemy_vis_all:
+                        val += 0.5
+
+                    # 2) 计算距离并判断是否在攻击范围内 -> +0.5
+                    mx, mz = main_hero["actor_state"]["location"]['x'], main_hero["actor_state"]["location"]['z']
+                    ex, ez = enemy_hero["actor_state"]["location"]['x'], enemy_hero["actor_state"]["location"]['z']
+                    hero_dist = math.dist((mx, mz), (ex, ez))
+                    attack_range = main_hero["actor_state"]['attack_range']
+
+                    if hero_dist <= attack_range:
+                        val += 0.5
+
+                    reward_struct.value = val
             else:
                 # Calculate zero-sum reward
                 # 计算零和奖励
@@ -282,5 +394,8 @@ class GameRewardManager:
 
             weight_sum += reward_struct.weight
             reward_sum += reward_struct.value * reward_struct.weight
-            reward_dict[reward_name] = reward_struct.value
-        reward_dict["reward_sum"] = reward_sum
+            # reward_dict[reward_name] = reward_struct.value
+            reward_dict[reward_name] = reward_struct.value * reward_struct.weight
+        # reward_dict["reward_sum"] = reward_sum
+        # 由于要局内衰减奖励，改为在result函数中计算总奖励
+

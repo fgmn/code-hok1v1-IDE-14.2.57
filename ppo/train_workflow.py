@@ -84,7 +84,9 @@ def run_episodes(envs, agents, logger, monitor):
         if is_eval:
             # The model used by the opponent: "common_ai" - rule-based agent, model_id - opponent model ID, see kaiwu.json for details
             # 设置评估时的对手智能体类型，默认采用了common_ai，可选择: "common_ai" - 基于规则的智能体, model_id - 对手模型的ID, 模型ID内容可在kaiwu.json里查看和设置
-            opponent_agent = "common_ai"
+            # opponent_agent = "common_ai"
+            opponent_agent_list = ["common_ai", "88195", "88196"]
+            opponent_agent = opponent_agent_list[random.randint(0,len(opponent_agent_list))]
 
         # Generate a new set of agent configurations
         # 生成一组新的智能体配置
@@ -245,7 +247,16 @@ def run_episodes(envs, agents, logger, monitor):
 
                 monitor_data = {
                     "reward": round(total_reward_dicts[train_agent_id]["reward_sum"], 2),
-                    "diy_1": round(total_reward_dicts[train_agent_id]["forward"], 2),
+                    # "diy_1": round(total_reward_dicts[train_agent_id]["forward"], 2),
+                    # "diy_2": round(total_reward_dicts[train_agent_id]["hp_point"], 2),
+                    # "diy_3": round(total_reward_dicts[train_agent_id]["tower_hp_point"], 2),
+                    # "diy_4": round(total_reward_dicts[train_agent_id]["kill"], 2),
+                    # "diy_5": round(total_reward_dicts[train_agent_id]["death"], 2),
+                    "diy_1": round(total_reward_dicts[train_agent_id]["last_hit"], 2),
+                    "diy_2": round(total_reward_dicts[train_agent_id]["kill"], 2),
+                    "diy_3": round(total_reward_dicts[train_agent_id]["hero_damage"], 2),
+                    "diy_4": round(total_reward_dicts[train_agent_id]["no_ops"], 2),
+                    "diy_5": round(total_reward_dicts[train_agent_id]["in_grass"], 2),
                 }
 
                 if monitor and is_eval:
