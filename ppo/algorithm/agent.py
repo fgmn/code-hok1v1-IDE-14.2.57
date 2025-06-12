@@ -101,12 +101,15 @@ class Agent(BaseAgent):
         self.model.set_eval_mode()
         with torch.no_grad():
             output_list = self.model(format_inputs, inference=True)
+            # print("\033[92m[DEBUG] output_list shapes:", [o.shape for o in output_list], "\033[0m")
+            # [DEBUG] output_list shapes: [torch.Size([1, 85]), torch.Size([1, 1]), torch.Size([1, 1, 512]), torch.Size([1, 1, 512])]
+            # [DEBUG] output_list shapes: [torch.Size([1, 85]), torch.Size([1, 1]), torch.Size([1, 1, 512]), torch.Size([1, 1, 512]), torch.Size([1, 2])]
 
         np_output = []
         for output in output_list:
             np_output.append(output.numpy())
 
-        logits, value, _lstm_cell, _lstm_hidden = np_output[:4]
+        logits, value, _lstm_cell, _lstm_hidden, value_group = np_output[:5]
 
         _lstm_cell = _lstm_cell.squeeze(axis=0)
         _lstm_hidden = _lstm_hidden.squeeze(axis=0)
@@ -114,6 +117,15 @@ class Agent(BaseAgent):
         list_act_data = list()
         for i in range(len(legal_action)):
             prob, action, d_action = self._sample_masked_action(logits[i], legal_action[i])
+            # print("\033[91m[DEBUG] action shape:", np.shape(action), 
+            #     "d_action shape:", np.shape(d_action), 
+            #     "prob shape:", np.shape(prob), 
+            #     "value shape:", np.shape(value), 
+            #     "lstm_cell shape:", np.shape(_lstm_cell[i]), 
+            #     "lstm_hidden shape:", np.shape(_lstm_hidden[i]), 
+            #     "value_group shape:", np.shape(value_group), "\033[0m")
+            # [DEBUG] action shape: (6,) d_action shape: (6,) prob shape: (1, 85) 
+            # value shape: (1, 1) lstm_cell shape: (512,) lstm_hidden shape: (512,) value_group shape: (1, 2) 
             list_act_data.append(
                 ActData(
                     action=action,
@@ -122,6 +134,7 @@ class Agent(BaseAgent):
                     value=value,
                     lstm_cell=_lstm_cell[i],
                     lstm_hidden=_lstm_hidden[i],
+                    value_group=value_group,
                 )
             )
         return list_act_data
@@ -322,9 +335,9 @@ class Agent(BaseAgent):
         for index in range(0, len(self.label_size_list) - 1):
             probs = self._legal_soft_max(logits_split[index], legal_actions[index])
             prob_list += list(probs)
-            sample_action = self._legal_sample(probs, use_max=False)
+            sample_action = self._legal_sample(probs, use_max=False)    # 随机采样
             action_list.append(sample_action)
-            d_action = self._legal_sample(probs, use_max=True)
+            d_action = self._legal_sample(probs, use_max=True)          # 贪心采样
             d_action_list.append(d_action)
 
         # deals with the last prediction, target

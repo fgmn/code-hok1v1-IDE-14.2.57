@@ -85,8 +85,8 @@ def run_episodes(envs, agents, logger, monitor):
             # The model used by the opponent: "common_ai" - rule-based agent, model_id - opponent model ID, see kaiwu.json for details
             # 设置评估时的对手智能体类型，默认采用了common_ai，可选择: "common_ai" - 基于规则的智能体, model_id - 对手模型的ID, 模型ID内容可在kaiwu.json里查看和设置
             # opponent_agent = "common_ai"
-            opponent_agent_list = ["common_ai", "88195", "88196"]
-            opponent_agent = opponent_agent_list[random.randint(0,len(opponent_agent_list))]
+            opponent_agent_list = ["common_ai", "88431", "88391"]
+            opponent_agent = opponent_agent_list[random.randint(0,len(opponent_agent_list)-1)]
 
         # Generate a new set of agent configurations
         # 生成一组新的智能体配置
@@ -168,12 +168,17 @@ def run_episodes(envs, agents, logger, monitor):
         # 回报初始化，作为当前环境状态state_dicts的一部分
         for i in range(agent_num):
             reward = agents[i].reward_manager.result(state_dicts[i]["frame_state"])
+            if i == 1:
+                print(f"\033[91mAgent {i} initial reward: {reward}\033[0m")
+
             state_dicts[i]["reward"] = reward
             for key, value in reward.items():
-                if key in total_reward_dicts[i]:
-                    total_reward_dicts[i][key] += value
+                if isinstance(value, dict):
+                    # 如果 value 是个子字典，就把它里面的每个键都单独累加
+                    for sub_key, sub_val in value.items():
+                        total_reward_dicts[i][sub_key] = total_reward_dicts[i].get(sub_key, 0.0) + sub_val
                 else:
-                    total_reward_dicts[i][key] = value
+                    total_reward_dicts[i][key] = total_reward_dicts[i].get(key, 0.0) + value
 
         # Reset environment frame collector
         # 重置环境帧收集器
@@ -223,10 +228,11 @@ def run_episodes(envs, agents, logger, monitor):
                 reward = agents[i].reward_manager.result(state_dicts[i]["frame_state"])
                 state_dicts[i]["reward"] = reward
                 for key, value in reward.items():
-                    if key in total_reward_dicts[i]:
-                        total_reward_dicts[i][key] += value
+                    if isinstance(value, dict):
+                        for sub_key, sub_val in value.items():
+                            total_reward_dicts[i][sub_key] = total_reward_dicts[i].get(sub_key, 0.0) + sub_val
                     else:
-                        total_reward_dicts[i][key] = value
+                        total_reward_dicts[i][key] = total_reward_dicts[i].get(key, 0.0) + value
 
             step += 1
 
@@ -243,6 +249,7 @@ def run_episodes(envs, agents, logger, monitor):
                         frame_collector.save_last_frame(
                             agent_id=index,
                             reward=state_dicts[index]["reward"]["reward_sum"],
+                            reward_group=state_dicts[index]["reward"]["reward_group_sum"],
                         )
 
                 monitor_data = {
@@ -252,11 +259,18 @@ def run_episodes(envs, agents, logger, monitor):
                     # "diy_3": round(total_reward_dicts[train_agent_id]["tower_hp_point"], 2),
                     # "diy_4": round(total_reward_dicts[train_agent_id]["kill"], 2),
                     # "diy_5": round(total_reward_dicts[train_agent_id]["death"], 2),
-                    "diy_1": round(total_reward_dicts[train_agent_id]["last_hit"], 2),
-                    "diy_2": round(total_reward_dicts[train_agent_id]["kill"], 2),
-                    "diy_3": round(total_reward_dicts[train_agent_id]["hero_damage"], 2),
-                    "diy_4": round(total_reward_dicts[train_agent_id]["no_ops"], 2),
-                    "diy_5": round(total_reward_dicts[train_agent_id]["in_grass"], 2),
+
+                    # "diy_1": round(total_reward_dicts[train_agent_id]["last_hit"], 2),
+                    # "diy_2": round(total_reward_dicts[train_agent_id]["kill"], 2),
+                    # "diy_3": round(total_reward_dicts[train_agent_id]["hero_damage"], 2),
+                    # "diy_4": round(total_reward_dicts[train_agent_id]["no_ops"], 2),
+                    # "diy_5": round(total_reward_dicts[train_agent_id]["in_grass"], 2),
+
+                    "diy_1": round(total_reward_dicts[train_agent_id]["forward"], 2),
+                    "diy_2": round(total_reward_dicts[train_agent_id]["hp_point"], 2),
+                    "diy_3": round(total_reward_dicts[train_agent_id]["tower_hp_point"], 2),
+                    "diy_4": round(total_reward_dicts[train_agent_id]["decay"], 2),
+                    "diy_5": round(total_reward_dicts[train_agent_id]["no_decay"], 2),
                 }
 
                 if monitor and is_eval:

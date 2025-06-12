@@ -46,6 +46,17 @@ class GameConfig:
         "no_ops": -0.001,
         "in_grass": 0.001,
     }
+    # 奖励分组配置
+    REWARD_GROUPS = {
+        # "economy": ["money", "exp", "last_hit"],
+        # "combat": ["kill", "death", "hero_damage", "hero_hurt", "total_damage"],
+        # "objective": ["hp_point", "tower_hp_point", "forward"],
+        # "behavior": ["no_ops", "in_grass", "ep_rate"],
+
+        "decay" : ["money", "exp", "last_hit", "forward", "ep_rate", "total_damage", 
+                   "hero_hurt", "hero_damage", "in_grass", "no_ops"],
+        "no_decay" : ["death", "kill", "hp_point", "tower_hp_point"],
+    }
     # Time decay factor, used in reward_manager
     # 时间衰减因子，在reward_manager中使用
     TIME_SCALE_ARG = 20000
@@ -83,6 +94,8 @@ class Config:
     NETWORK_NAME = "network"
     LSTM_TIME_STEPS = 16
     LSTM_UNIT_SIZE = 512
+    # _format_data中有对应的释义
+    # 手动挡 增加奖励组数需要对应调整一下
     DATA_SPLIT_SHAPE = [
         810,
         1,
@@ -106,6 +119,8 @@ class Config:
         1,
         1,
         1,
+        2,  # reward groups
+        2,  # reward groups
         512,
         512,
     ]
@@ -152,6 +167,8 @@ class Config:
         [16],
         [16],
         [16],
+        [32],  # reward groups*16
+        [32],  # reward groups*16
         [512],
         [512],
     ]
@@ -169,4 +186,4 @@ class Config:
     # For instance, the dimension for ppo is 15584,
     # learner上reverb样本的输入维度, 注意不同的算法维度不一样, 比如示例代码中ppo的维度是15584
     # **注意**，此项必须正确配置，应该与definition.py中的NumpyData2SampleData函数数据对齐，否则可能报样本维度错误
-    SAMPLE_DIM = 15584
+    SAMPLE_DIM = 15648

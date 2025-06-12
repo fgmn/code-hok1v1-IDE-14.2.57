@@ -46,6 +46,7 @@ class GameRewardManager:
         self.time_scale_arg = GameConfig.TIME_SCALE_ARG
         self.m_main_hero_config_id = -1
         self.m_each_level_max_exp = {}
+        self.reward_groups = GameConfig.REWARD_GROUPS
 
     # Used to initialize the maximum experience value for each agent level
     # 用于初始化智能体各个等级的最大经验值
@@ -123,6 +124,17 @@ class GameRewardManager:
         for key in self.m_reward_value:
             tmp_sum += self.m_reward_value[key]
         self.m_reward_value["reward_sum"] = tmp_sum
+
+        # 奖励分组求和返回
+        reward_group_sum = {}
+        for group, keys in self.reward_groups.items():
+            reward_group_sum[group] = sum(self.m_reward_value.get(k, 0.0) for k in keys)
+        self.m_reward_value["reward_group_sum"] = reward_group_sum
+
+        # # 打印分组奖励信息
+        # print(f"\033[94mFrame No: {frame_no}, Reward Group Sums:\033[0m")
+        # for group, value in reward_group_sum.items():
+        #     print(f"{group}: {value:.4f}")
 
         # # 打印奖励信息
         # print(f"\033[92mFrame No: {frame_no}, Reward Values:\033[0m")

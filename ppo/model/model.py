@@ -24,6 +24,7 @@ from typing import Dict, List, Tuple
 
 from ppo.config import DimConfig
 from ppo.config import Config
+from ppo.config import GameConfig
 
 
 class Model(nn.Module):
@@ -53,7 +54,8 @@ class Model(nn.Module):
         self.feature_dim = Config.SERI_VEC_SPLIT_SHAPE[0][0]
         self.legal_action_dim = np.sum(Config.LEGAL_ACTION_SIZE_LIST)
         self.lstm_hidden_dim = Config.LSTM_UNIT_SIZE
-
+        self.reward_groups = GameConfig.REWARD_GROUPS
+        
         # NETWORK DIM
         # 网络维度
         self.hero_data_len = sum(Config.data_shapes[0])
@@ -190,7 +192,11 @@ class Model(nn.Module):
 
         """output value"""
         self.value_mlp = MLP([self.lstm_unit_size, 64, 1], "hero_value_mlp")
-
+        # 多头value，每组奖励一个head
+        self.value_group_mlps = nn.ModuleDict({
+            group: MLP([self.lstm_unit_size, 64, 1], f"hero_value_{group}_mlp")
+            for group in self.reward_groups
+        })
         self.target_embed_mlp = make_fc_layer(32, self.target_embed_dim, use_bias=False)
 
     def forward(self, data_list, inference=False):
@@ -369,16 +375,21 @@ class Model(nn.Module):
             lstm_cell_init.unsqueeze(0),
         ]
         lstm_outputs, state = self.lstm(reshape_fc_public_result, lstm_initial_state_in)
-
+        # lstm_outputs: [batch_size, time_steps, lstm_unit_size]
         lstm_outputs = torch.cat([lstm_outputs[:, idx, :] for idx in range(lstm_outputs.size(1))], dim=1)
 
         self.lstm_cell_output = state[1]
         self.lstm_hidden_output = state[0]
 
+        # 前面是共享网络，之后分出价值头和动作头
         reshape_lstm_outputs_result = lstm_outputs.reshape(-1, self.lstm_unit_size)
 
         # output label
         # 输出标签
+        # hierarchical action heads：
+            # what，你要按哪个按键：12个button
+            # how，你要往哪个方向拖动按键：16*16个方向选择
+            # who，你的技能作用对象是谁：9个target（None，敌我两个英雄，四个兵，一个塔，一个野怪）
         for label_index, label_dim in enumerate(self.label_size_list[:-1]):
             label_mlp_out = self.label_mlp["hero_label{0}_mlp".format(label_index)](reshape_lstm_outputs_result)
             result_list.append(label_mlp_out)
@@ -389,7 +400,7 @@ class Model(nn.Module):
 
         ulti_tar_embedding = self.target_embed_mlp(tar_embedding)
         reshape_label_result = lstm_tar_embed_result.reshape(-1, self.target_embed_dim, 1)
-
+        # 目标选择这一维的动作是通过attention得到的
         label_result = torch.matmul(ulti_tar_embedding, reshape_label_result)
         target_output_dim = int(np.prod(label_result.shape[1:]))
 
@@ -399,15 +410,20 @@ class Model(nn.Module):
         # output value
         # 输出价值
         value_result = self.value_mlp(reshape_lstm_outputs_result)
+        # 多头value输出
+        value_group_results = torch.cat(
+            [mlp(reshape_lstm_outputs_result) for mlp in self.value_group_mlps.values()], dim=1
+        )
         result_list.append(value_result)
+        result_list.append(value_group_results)
 
         # prepare for infer graph
         # 准备推理图
-        logits = torch.flatten(torch.cat(result_list[:-1], 1), start_dim=1)
-        value = result_list[-1]
+        logits = torch.flatten(torch.cat(result_list[:-2], 1), start_dim=1)
+        value = result_list[-2]
 
         if inference:
-            return [logits, value, self.lstm_cell_output, self.lstm_hidden_output]
+            return [logits, value, self.lstm_cell_output, self.lstm_hidden_output, value_group_results]
         else:
             return result_list
 
@@ -416,7 +432,10 @@ class Model(nn.Module):
         seri_vec = data_list[0].reshape(-1, self.data_split_shape[0])
         usq_reward = data_list[1].reshape(-1, self.data_split_shape[1])
         usq_advantage = data_list[2].reshape(-1, self.data_split_shape[2])
-        usq_is_train = data_list[-3].reshape(-1, self.data_split_shape[-3])
+        usq_is_train = data_list[-5].reshape(-1, self.data_split_shape[-5])
+
+        usq_reward_group = data_list[-4].reshape(-1, self.data_split_shape[-4])
+        usq_advantage_group = data_list[-3].reshape(-1, self.data_split_shape[-3])
 
         usq_label_list = data_list[3 : 3 + len(self.label_size_list)]
         for shape_index in range(len(self.label_size_list)):
@@ -437,10 +456,48 @@ class Model(nn.Module):
                 self.data_split_shape[3 + 2 * len(self.label_size_list) + shape_index],
             )
 
+        # # 打印主要变量的类型和形状（绿色字体）
+        # def debug(msg, var):
+        #     print(f"\033[92m{msg}: {type(var)} {getattr(var, 'shape', '')}\033[0m")
+
+        # debug("seri_vec", seri_vec)
+        # debug("usq_reward", usq_reward)
+        # debug("usq_advantage", usq_advantage)
+        # debug("usq_is_train", usq_is_train)
+        # debug("usq_reward_group", usq_reward_group)
+        # debug("usq_advantage_group", usq_advantage_group)
+        # for i, ele in enumerate(usq_label_list):
+        #     debug(f"usq_label_list[{i}]", ele)
+        # for i, ele in enumerate(old_label_probability_list):
+        #     debug(f"old_label_probability_list[{i}]", ele)
+        # for i, ele in enumerate(usq_weight_list):
+        #     debug(f"usq_weight_list[{i}]", ele)
+
+# seri_vec: <class 'torch.Tensor'> torch.Size([32, 810])
+# usq_reward: <class 'torch.Tensor'> torch.Size([32, 1])
+# usq_advantage: <class 'torch.Tensor'> torch.Size([32, 1])
+# usq_is_train: <class 'torch.Tensor'> torch.Size([32, 1])
+# usq_reward_group: <class 'torch.Tensor'> torch.Size([32, 2])
+# usq_advantage_group: <class 'torch.Tensor'> torch.Size([32, 2])
+# usq_label_list[0]: <class 'torch.Tensor'> torch.Size([32, 1])
+# usq_label_list[1]: <class 'torch.Tensor'> torch.Size([32, 1])
+# old_label_probability_list[0]: <class 'torch.Tensor'> torch.Size([32, 12])
+# old_label_probability_list[1]: <class 'torch.Tensor'> torch.Size([32, 16])
+# old_label_probability_list[2]: <class 'torch.Tensor'> torch.Size([32, 16])
+# old_label_probability_list[3]: <class 'torch.Tensor'> torch.Size([32, 16])
+# old_label_probability_list[4]: <class 'torch.Tensor'> torch.Size([32, 16])
+# old_label_probability_list[5]: <class 'torch.Tensor'> torch.Size([32, 9])
+# usq_weight_list[0]: <class 'torch.Tensor'> torch.Size([32, 1])
+# usq_weight_list[1]: <class 'torch.Tensor'> torch.Size([32, 1])
+
+
         # squeeze tensor
         # 压缩张量
         reward = usq_reward.squeeze(dim=1)
         advantage = usq_advantage.squeeze(dim=1)
+        reward_group = usq_reward_group
+        advantage2 = usq_advantage_group.sum(dim=1)
+
         label_list = []
         for ele in usq_label_list:
             label_list.append(ele.squeeze(dim=1))
@@ -449,9 +506,15 @@ class Model(nn.Module):
             weight_list.append(weight.squeeze(dim=1))
         frame_is_train = usq_is_train.squeeze(dim=1)
 
-        label_result = rst_list[:-1]
-
-        value_result = rst_list[-1]
+        label_result = rst_list[:-2]
+        value_result = rst_list[-2]
+        value_group_results = rst_list[-1]
+        # debug("label_result", label_result)
+        # debug("value_result", value_result)
+        # debug("value_group_results", value_group_results)
+# label_result: <class 'list'> 
+# value_result: <class 'torch.Tensor'> torch.Size([32, 1])
+# value_group_results: <class 'torch.Tensor'> torch.Size([32, 2])
 
         _, split_feature_legal_action = torch.split(
             seri_vec,
@@ -470,9 +533,21 @@ class Model(nn.Module):
         # loss of value net
         # 值网络的损失
         fc2_value_result_squeezed = value_result.squeeze(dim=1)
-        # self.value_cost = 0.5 * torch.mean(torch.square(reward - fc2_value_result_squeezed), dim=0)
         new_advantage = reward - fc2_value_result_squeezed
         self.value_cost = 0.5 * torch.mean(torch.square(new_advantage), dim=0)
+
+        # 多头value损失
+        group_diff = reward_group - value_group_results
+        tmp = 0.5 * torch.mean(torch.sum(torch.square(group_diff), dim=1), dim=0)
+        self.value_group_cost = tmp
+
+        # 红色打印调试信息
+        # print(f"\033[91mvalue_group_results: {value_group_results}\033[0m")
+        # print(f"\033[91mreward_group: {reward_group}\033[0m")
+        # print(f"\033[91mvalue_group_cost: {self.value_group_cost}\033[0m")
+        # print(f"\033[91mfc2_value_result_squeezed: {fc2_value_result_squeezed}\033[0m")
+        # print(f"\033[91mreward: {reward}\033[0m")
+        # print(f"\033[91mvalue_cost: {self.value_cost}\033[0m")
 
         # for entropy loss calculate
         # 用于熵损失计算
@@ -523,10 +598,12 @@ class Model(nn.Module):
                 old_policy_log_p = torch.log(old_policy_p)
                 final_log_p = final_log_p + policy_log_p - old_policy_log_p
                 ratio = torch.exp(final_log_p)
-                clip_ratio = ratio.clamp(0.0, 3.0)
+                clip_ratio = ratio.clamp(0.0, 3.0)  # Dual-clip PPO
 
-                surr1 = clip_ratio * advantage
-                surr2 = ratio.clamp(1.0 - self.clip_param, 1.0 + self.clip_param) * advantage
+                # surr1 = clip_ratio * advantage
+                # surr2 = ratio.clamp(1.0 - self.clip_param, 1.0 + self.clip_param) * advantage
+                surr1 = clip_ratio * advantage2
+                surr2 = ratio.clamp(1.0 - self.clip_param, 1.0 + self.clip_param) * advantage2
                 temp_policy_loss = -torch.sum(
                     torch.minimum(surr1, surr2) * (weight_list[task_index].float()) * 1
                 ) / torch.maximum(torch.sum((weight_list[task_index].float()) * 1), torch.tensor(1.0))
@@ -562,11 +639,12 @@ class Model(nn.Module):
 
         self.entropy_cost_list = entropy_loss_list
 
-        self.loss = self.value_cost + self.policy_cost + self.var_beta * self.entropy_cost
+        # self.loss = self.value_cost + self.policy_cost + self.var_beta * self.entropy_cost
+        self.loss = self.value_group_cost + self.policy_cost + self.var_beta * self.entropy_cost
 
         return self.loss, [
             self.loss,
-            [self.value_cost, self.policy_cost, self.entropy_cost],
+            [self.value_group_cost, self.policy_cost, self.entropy_cost],
         ]
 
     def set_train_mode(self):

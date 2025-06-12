@@ -29,6 +29,7 @@ ActData = create_cls(
     value=None,
     lstm_cell=None,
     lstm_hidden=None,
+    value_group=None,
 )
 
 NONE_ACTION = [0, 15, 15, 15, 15, 0]
@@ -93,11 +94,38 @@ def build_frame(agent, state_dict):
         feature_vec = np.array(state_dict["observation"])
 
     reward = state_dict["reward"]["reward_sum"]
+    reward_group = state_dict["reward"].get("reward_group_sum", {})
 
     sub_action_mask = state_dict["sub_action_mask"]
 
     prob, value, action = act_data.prob, act_data.value, act_data.action
     lstm_cell, lstm_hidden = act_data.lstm_cell, act_data.lstm_hidden
+    value_group = act_data.value_group
+
+    # print("\033[91m[DEBUG] action shape:", np.shape(action), 
+    #       "prob shape:", np.shape(prob), 
+    #       "value shape:", np.shape(value), 
+    #       "lstm_cell shape:", np.shape(lstm_cell), 
+    #       "lstm_hidden shape:", np.shape(lstm_hidden), 
+    #       "value_group shape:", np.shape(value_group), "\033[0m")
+    # [DEBUG] action shape: (6,) d_action shape: (6,) prob shape: (1, 85) value shape: (1, 1) 
+    # lstm_cell shape: (512,) lstm_hidden shape: (512,) value_group shape: (1, 2) 
+    
+    # 字典转成np数组，放到frame中
+    reward_group = np.array([reward_group.get(group, 0.0) for group in agent.reward_manager.reward_groups]) \
+        if hasattr(agent.reward_manager, "reward_groups") else None
+    value = value.flatten()[0]
+    value_group = np.array(value_group).flatten()
+
+    # print(
+    #     "\033[91m[DEBUG] reward_group shape:", np.shape(reward_group), "type:", type(reward_group_sum),
+    #     "value shape:", np.shape(value), "type:", type(value),
+    #     "value_group shape:", np.shape(value_group), "type:", type(value_group),
+    #     "\033[0m"
+    # )
+    # [DEBUG] reward_group shape: (2,) type: <class 'numpy.ndarray'> 
+    # value shape: () type: <class 'numpy.float32'> 
+    # value_group shape: (2,) type: <class 'numpy.ndarray'>
 
     legal_action = _update_legal_action(state_dict["legal_action"], action)
     frame = Frame(
@@ -107,13 +135,18 @@ def build_frame(agent, state_dict):
         action=action,
         reward=reward,
         reward_sum=0,
-        value=value.flatten()[0],
+        value=value,
         next_value=0,
         advantage=0,
         prob=prob,
         sub_action=sub_action_mask[action[0]],
         lstm_info=np.concatenate([lstm_cell.flatten(), lstm_hidden.flatten()]).reshape([-1]),
         is_train=False if action[0] < 0 else is_train,
+        reward_group=reward_group,
+        reward_group_sum=np.zeros_like(reward_group),
+        value_group=value_group,
+        next_value_group=np.zeros_like(value_group),
+        advantage_group=np.zeros_like(value_group),
     )
     return frame
 
@@ -142,33 +175,87 @@ class FrameCollector:
         # load config from config file
         self.gamma = Config.GAMMA
         self.lamda = Config.LAMDA
+        from ppo.config import GameConfig
+        self.reward_groups = list(GameConfig.REWARD_GROUPS.keys())
 
     def reset(self, num_agents):
         self.num_agents = num_agents
         self.rl_data_map = [collections.OrderedDict() for _ in range(self.num_agents)]
         self.m_replay_buffer = [[] for _ in range(self.num_agents)]
 
+    # rl_data_info=frame
     def save_frame(self, rl_data_info, agent_id):
+        # # 打印rl_data_info的所有属性、类型和形状（不打印具体值）
+        # print("\033[93m==== rl_data_info debug ====\033[0m")
+        # for attr in dir(rl_data_info):
+        #     if attr.startswith("__"):
+        #         continue
+        #     value = getattr(rl_data_info, attr)
+        #     try:
+        #         shape = value.shape if hasattr(value, "shape") else None
+        #     except Exception:
+        #         shape = None
+        #     print(f"{attr}: type={type(value)}, shape={shape}")
+        # print("\033[93m============================\033[0m")
+
+# ==== rl_data_info debug ====
+# action: type=<class 'list'>, shape=None
+# advantage: type=<class 'int'>, shape=None
+# advantage_group: type=<class 'numpy.ndarray'>, shape=(2,)
+# feature: type=<class 'numpy.ndarray'>, shape=(725,)
+# frame_no: type=<class 'int'>, shape=None
+# is_train: type=<class 'bool'>, shape=None
+# legal_action: type=<class 'numpy.ndarray'>, shape=(85,)
+# lstm_info: type=<class 'numpy.ndarray'>, shape=(1024,)
+# next_value: type=<class 'int'>, shape=None
+# next_value_group: type=<class 'numpy.ndarray'>, shape=(2,)
+# prob: type=<class 'list'>, shape=None
+# reward: type=<class 'float'>, shape=None
+# reward_group: type=<class 'numpy.ndarray'>, shape=(2,)
+# reward_group_sum: type=<class 'numpy.ndarray'>, shape=(2,)
+# reward_sum: type=<class 'int'>, shape=None
+# sub_action: type=<class 'list'>, shape=None
+# value: type=<class 'numpy.float32'>, shape=()
+# value_group: type=<class 'numpy.ndarray'>, shape=(2,)
+# ============================
+
         # samples must saved by frame_no order
         # 样本必须按帧号顺序保存
         reward = self._clip_reward(rl_data_info.reward)
 
         # update last frame's next_value
+        # 更新上一帧的next_value,reward
         if len(self.rl_data_map[agent_id]) > 0:
             last_key = list(self.rl_data_map[agent_id].keys())[-1]
             last_rl_data_info = self.rl_data_map[agent_id][last_key]
             last_rl_data_info.next_value = rl_data_info.value
+            last_rl_data_info.next_value_group = rl_data_info.value_group
             last_rl_data_info.reward = reward
+            last_rl_data_info.reward_group= rl_data_info.reward_group
 
         rl_data_info.reward = 0
+        rl_data_info.reward_group = np.zeros_like(rl_data_info.reward_group)
         self.rl_data_map[agent_id][rl_data_info.frame_no] = rl_data_info
 
-    def save_last_frame(self, reward, agent_id):
+
+    # def save_last_frame(self, reward, agent_id):
+    #     if len(self.rl_data_map[agent_id]) > 0:
+    #         last_key = list(self.rl_data_map[agent_id].keys())[-1]
+    #         last_rl_data_info = self.rl_data_map[agent_id][last_key]
+    #         last_rl_data_info.next_value = 0
+    #         last_rl_data_info.reward = reward
+
+    def save_last_frame(self, reward, reward_group, agent_id):
         if len(self.rl_data_map[agent_id]) > 0:
             last_key = list(self.rl_data_map[agent_id].keys())[-1]
             last_rl_data_info = self.rl_data_map[agent_id][last_key]
+            # terminal state, set next_value to 0
             last_rl_data_info.next_value = 0
+            last_rl_data_info.next_value_group = np.zeros_like(last_rl_data_info.value_group)
             last_rl_data_info.reward = reward
+            # 转成np数组
+            reward_group = np.array([reward_group.get(group, 0.0) for group in self.reward_groups])
+            last_rl_data_info.reward_group = reward_group
 
     def sample_process(self):
         self._calc_reward()
@@ -192,12 +279,21 @@ class FrameCollector:
             reversed_keys = list(self.rl_data_map[i].keys())
             reversed_keys.reverse()
             gae, last_gae = 0.0, 0.0
+            gae_group = np.zeros(len(self.reward_groups), dtype=np.float32)
             for j in reversed_keys:
+                # 原始GAE
                 rl_info = self.rl_data_map[i][j]
                 delta = -rl_info.value + rl_info.reward + self.gamma * rl_info.next_value
                 gae = gae * self.gamma * self.lamda + delta
                 rl_info.advantage = gae
                 rl_info.reward_sum = gae + rl_info.value
+
+                # 分组GAE
+                delta_group = -rl_info.value_group + rl_info.reward_group + self.gamma * rl_info.next_value_group
+                gae_group = gae_group * self.gamma * self.lamda + delta_group
+                rl_info.advantage_group = gae_group
+                rl_info.reward_group_sum = gae_group + rl_info.value_group
+
 
     # For every LSTM_TIME_STEPS samples, concatenate 1 LSTM state
     # 每LSTM_TIME_STEPS个样本，需要拼接1个lstm状态
@@ -216,7 +312,9 @@ class FrameCollector:
     # Create the sample for the current frame
     # 根据LSTM_TIME_STEPS，组合送入样本池的样本
     def _format_data(self):
+        # 一个样本的大小 最后两个元素是lstm cell和hidden
         sample_one_size = np.sum(self._data_shapes[:-2]) // self._LSTM_FRAME
+        # print("\033[92m[INFO] sample_one_size:", sample_one_size, "\033[0m")
         sample_lstm_size = np.sum(self._data_shapes[-2:])
         sample_batch = np.zeros([self._LSTM_FRAME, sample_one_size])
         first_frame_no = -1
@@ -271,10 +369,21 @@ class FrameCollector:
                 sample_batch[cnt, idx] = rl_info.is_train
                 idx += 1
 
+                # reward_group_sum
+                dlen = rl_info.reward_group_sum.shape[0]
+                sample_batch[cnt, idx : idx + dlen] = rl_info.reward_group_sum
+                idx += dlen
+                # advantage_group
+                dlen = rl_info.advantage_group.shape[0]
+                sample_batch[cnt, idx : idx + dlen] = rl_info.advantage_group
+                idx += dlen
+
                 assert idx == sample_one_size, "Sample check failed, {}/{}".format(idx, sample_one_size)
 
                 cnt += 1
                 if cnt == self._LSTM_FRAME:
+                    # 中间帧的那些cell/hidden状态并不会额外保存
+                    # 在训练阶段，会把初始状态喂给LSTM，然后依次把这T帧的观测输入到LSTM里，自然就会一层层地计算出中间帧对应的hidden/cell
                     cnt = 0
                     sample = self._reshape_lstm_batch_sample(sample_batch, sample_lstm)
                     self.m_replay_buffer[i].append(sample)
