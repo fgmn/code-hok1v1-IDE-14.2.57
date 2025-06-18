@@ -55,7 +55,8 @@ class Model(nn.Module):
         self.legal_action_dim = np.sum(Config.LEGAL_ACTION_SIZE_LIST)
         self.lstm_hidden_dim = Config.LSTM_UNIT_SIZE
         self.reward_groups = GameConfig.REWARD_GROUPS
-        
+        self.value_clip = Config.VALUE_CLIP
+
         # NETWORK DIM
         # 网络维度
         self.hero_data_len = sum(Config.data_shapes[0])
@@ -437,6 +438,9 @@ class Model(nn.Module):
         usq_reward_group = data_list[-4].reshape(-1, self.data_split_shape[-4])
         usq_advantage_group = data_list[-3].reshape(-1, self.data_split_shape[-3])
 
+        usq_value = usq_reward - usq_advantage
+        usq_value_group = usq_reward_group - usq_advantage_group
+
         usq_label_list = data_list[3 : 3 + len(self.label_size_list)]
         for shape_index in range(len(self.label_size_list)):
             usq_label_list[shape_index] = (
@@ -497,6 +501,8 @@ class Model(nn.Module):
         advantage = usq_advantage.squeeze(dim=1)
         reward_group = usq_reward_group
         advantage2 = usq_advantage_group.sum(dim=1)
+        old_value = usq_value.squeeze(dim=1)
+        old_value_group = usq_value_group
 
         label_list = []
         for ele in usq_label_list:
@@ -533,13 +539,35 @@ class Model(nn.Module):
         # loss of value net
         # 值网络的损失
         fc2_value_result_squeezed = value_result.squeeze(dim=1)
-        new_advantage = reward - fc2_value_result_squeezed
-        self.value_cost = 0.5 * torch.mean(torch.square(new_advantage), dim=0)
+        # new_advantage = reward - fc2_value_result_squeezed
+        # self.value_cost = 0.5 * torch.mean(torch.square(new_advantage), dim=0)
+
+        vl_unclipped = (reward - fc2_value_result_squeezed) ** 2
+        vl_clipped = old_value + torch.clamp(fc2_value_result_squeezed-old_value,-self.value_clip, self.value_clip)
+        vl_clipped = (vl_clipped - reward) ** 2
+        vl_max = torch.max(vl_clipped, vl_unclipped)
+        self.value_cost = 0.5 * vl_max.mean(dim=0)
 
         # 多头value损失
-        group_diff = reward_group - value_group_results
-        tmp = 0.5 * torch.mean(torch.sum(torch.square(group_diff), dim=1), dim=0)
-        self.value_group_cost = tmp
+        # group_diff = reward_group - value_group_results
+        # tmp = 0.5 * torch.mean(torch.sum(torch.square(group_diff), dim=1), dim=0)
+        # self.value_group_cost = tmp
+
+        vl_group_unclipped = torch.square(reward_group - value_group_results)
+        vl_group_clipped = old_value_group + torch.clamp(
+            value_group_results - old_value_group, -self.value_clip, self.value_clip
+        )
+        vl_group_clipped = torch.square(vl_group_clipped - reward_group)
+        vl_group_max = torch.max(vl_group_clipped, vl_group_unclipped)
+        # 红色打印关键变量的形状
+        # print(f"\033[91mvl_group_unclipped.shape: {vl_group_unclipped.shape}\033[0m")
+        # print(f"\033[91mvl_group_clipped.shape: {vl_group_clipped.shape}\033[0m")
+        # print(f"\033[91mvl_group_max.shape: {vl_group_max.shape}\033[0m")
+        # print(f"\033[91mreward_group.shape: {reward_group.shape}\033[0m")
+        # print(f"\033[91mvalue_group_results.shape: {value_group_results.shape}\033[0m")
+        # print(f"\033[91mold_value_group.shape: {old_value_group.shape}\033[0m")
+        self.value_group_cost = 0.5 * torch.mean(torch.sum(vl_group_max, dim=1), dim=0)
+        
 
         # 红色打印调试信息
         # print(f"\033[91mvalue_group_results: {value_group_results}\033[0m")

@@ -187,3 +187,6 @@ class Config:
     # learner上reverb样本的输入维度, 注意不同的算法维度不一样, 比如示例代码中ppo的维度是15584
     # **注意**，此项必须正确配置，应该与definition.py中的NumpyData2SampleData函数数据对齐，否则可能报样本维度错误
     SAMPLE_DIM = 15648
+
+    # value clip
+    VALUE_CLIP = 0.20
