@@ -117,16 +117,6 @@ def build_frame(agent, state_dict):
     value = value.flatten()[0]
     value_group = np.array(value_group).flatten()
 
-    # print(
-    #     "\033[91m[DEBUG] reward_group shape:", np.shape(reward_group), "type:", type(reward_group_sum),
-    #     "value shape:", np.shape(value), "type:", type(value),
-    #     "value_group shape:", np.shape(value_group), "type:", type(value_group),
-    #     "\033[0m"
-    # )
-    # [DEBUG] reward_group shape: (2,) type: <class 'numpy.ndarray'> 
-    # value shape: () type: <class 'numpy.float32'> 
-    # value_group shape: (2,) type: <class 'numpy.ndarray'>
-
     legal_action = _update_legal_action(state_dict["legal_action"], action)
     frame = Frame(
         frame_no=frame_no,
@@ -197,27 +187,6 @@ class FrameCollector:
         #         shape = None
         #     print(f"{attr}: type={type(value)}, shape={shape}")
         # print("\033[93m============================\033[0m")
-
-# ==== rl_data_info debug ====
-# action: type=<class 'list'>, shape=None
-# advantage: type=<class 'int'>, shape=None
-# advantage_group: type=<class 'numpy.ndarray'>, shape=(2,)
-# feature: type=<class 'numpy.ndarray'>, shape=(725,)
-# frame_no: type=<class 'int'>, shape=None
-# is_train: type=<class 'bool'>, shape=None
-# legal_action: type=<class 'numpy.ndarray'>, shape=(85,)
-# lstm_info: type=<class 'numpy.ndarray'>, shape=(1024,)
-# next_value: type=<class 'int'>, shape=None
-# next_value_group: type=<class 'numpy.ndarray'>, shape=(2,)
-# prob: type=<class 'list'>, shape=None
-# reward: type=<class 'float'>, shape=None
-# reward_group: type=<class 'numpy.ndarray'>, shape=(2,)
-# reward_group_sum: type=<class 'numpy.ndarray'>, shape=(2,)
-# reward_sum: type=<class 'int'>, shape=None
-# sub_action: type=<class 'list'>, shape=None
-# value: type=<class 'numpy.float32'>, shape=()
-# value_group: type=<class 'numpy.ndarray'>, shape=(2,)
-# ============================
 
         # samples must saved by frame_no order
         # 样本必须按帧号顺序保存

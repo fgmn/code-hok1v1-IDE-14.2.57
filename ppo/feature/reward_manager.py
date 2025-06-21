@@ -77,23 +77,6 @@ class GameRewardManager:
         #     for key in self.m_reward_value:
         #         self.m_reward_value[key] *= math.pow(0.6, 1.0 * frame_no / self.time_scale_arg)
         
-# REWARD_WEIGHT_DICT = {
-#     "hp_point": 2.0,
-#     "tower_hp_point": 5.0,
-#     "money": 0.006,
-#     "exp": 0.006,
-#     "ep_rate": 0.75,
-#     "death": -1.0,
-#     "kill": -0.6,
-#     "last_hit": 0.5,
-#     "forward": 0.01,
-#     "total_damage": 0.1,
-#     "hero_hurt": -0.1,
-#     "hero_damage": 0.30,
-#     "no_ops": -0.001,
-#     "in_grass": 0.001,
-# }
-
         # 奖励分阶段（前期注重发育，后期注重推塔，KDA）
         # 1820步为一分钟
         if frame_no <= 5000:

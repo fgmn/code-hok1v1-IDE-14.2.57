@@ -460,47 +460,16 @@ class Model(nn.Module):
                 self.data_split_shape[3 + 2 * len(self.label_size_list) + shape_index],
             )
 
-        # # 打印主要变量的类型和形状（绿色字体）
-        # def debug(msg, var):
-        #     print(f"\033[92m{msg}: {type(var)} {getattr(var, 'shape', '')}\033[0m")
-
-        # debug("seri_vec", seri_vec)
-        # debug("usq_reward", usq_reward)
-        # debug("usq_advantage", usq_advantage)
-        # debug("usq_is_train", usq_is_train)
-        # debug("usq_reward_group", usq_reward_group)
-        # debug("usq_advantage_group", usq_advantage_group)
-        # for i, ele in enumerate(usq_label_list):
-        #     debug(f"usq_label_list[{i}]", ele)
-        # for i, ele in enumerate(old_label_probability_list):
-        #     debug(f"old_label_probability_list[{i}]", ele)
-        # for i, ele in enumerate(usq_weight_list):
-        #     debug(f"usq_weight_list[{i}]", ele)
-
-# seri_vec: <class 'torch.Tensor'> torch.Size([32, 810])
-# usq_reward: <class 'torch.Tensor'> torch.Size([32, 1])
-# usq_advantage: <class 'torch.Tensor'> torch.Size([32, 1])
-# usq_is_train: <class 'torch.Tensor'> torch.Size([32, 1])
-# usq_reward_group: <class 'torch.Tensor'> torch.Size([32, 2])
-# usq_advantage_group: <class 'torch.Tensor'> torch.Size([32, 2])
-# usq_label_list[0]: <class 'torch.Tensor'> torch.Size([32, 1])
-# usq_label_list[1]: <class 'torch.Tensor'> torch.Size([32, 1])
-# old_label_probability_list[0]: <class 'torch.Tensor'> torch.Size([32, 12])
-# old_label_probability_list[1]: <class 'torch.Tensor'> torch.Size([32, 16])
-# old_label_probability_list[2]: <class 'torch.Tensor'> torch.Size([32, 16])
-# old_label_probability_list[3]: <class 'torch.Tensor'> torch.Size([32, 16])
-# old_label_probability_list[4]: <class 'torch.Tensor'> torch.Size([32, 16])
-# old_label_probability_list[5]: <class 'torch.Tensor'> torch.Size([32, 9])
-# usq_weight_list[0]: <class 'torch.Tensor'> torch.Size([32, 1])
-# usq_weight_list[1]: <class 'torch.Tensor'> torch.Size([32, 1])
-
-
         # squeeze tensor
         # 压缩张量
         reward = usq_reward.squeeze(dim=1)
         advantage = usq_advantage.squeeze(dim=1)
         reward_group = usq_reward_group
         advantage2 = usq_advantage_group.sum(dim=1)
+        # batch_adv_norm
+        mean = advantage2.mean()
+        var = advantage2.var(unbiased=False)
+        advantage2 = (advantage2 - mean) / torch.sqrt(var + 1e-5)
         old_value = usq_value.squeeze(dim=1)
         old_value_group = usq_value_group
 
@@ -515,12 +484,6 @@ class Model(nn.Module):
         label_result = rst_list[:-2]
         value_result = rst_list[-2]
         value_group_results = rst_list[-1]
-        # debug("label_result", label_result)
-        # debug("value_result", value_result)
-        # debug("value_group_results", value_group_results)
-# label_result: <class 'list'> 
-# value_result: <class 'torch.Tensor'> torch.Size([32, 1])
-# value_group_results: <class 'torch.Tensor'> torch.Size([32, 2])
 
         _, split_feature_legal_action = torch.split(
             seri_vec,
@@ -559,24 +522,8 @@ class Model(nn.Module):
         )
         vl_group_clipped = torch.square(vl_group_clipped - reward_group)
         vl_group_max = torch.max(vl_group_clipped, vl_group_unclipped)
-        # 红色打印关键变量的形状
-        # print(f"\033[91mvl_group_unclipped.shape: {vl_group_unclipped.shape}\033[0m")
-        # print(f"\033[91mvl_group_clipped.shape: {vl_group_clipped.shape}\033[0m")
-        # print(f"\033[91mvl_group_max.shape: {vl_group_max.shape}\033[0m")
-        # print(f"\033[91mreward_group.shape: {reward_group.shape}\033[0m")
-        # print(f"\033[91mvalue_group_results.shape: {value_group_results.shape}\033[0m")
-        # print(f"\033[91mold_value_group.shape: {old_value_group.shape}\033[0m")
         self.value_group_cost = 0.5 * torch.mean(torch.sum(vl_group_max, dim=1), dim=0)
         
-
-        # 红色打印调试信息
-        # print(f"\033[91mvalue_group_results: {value_group_results}\033[0m")
-        # print(f"\033[91mreward_group: {reward_group}\033[0m")
-        # print(f"\033[91mvalue_group_cost: {self.value_group_cost}\033[0m")
-        # print(f"\033[91mfc2_value_result_squeezed: {fc2_value_result_squeezed}\033[0m")
-        # print(f"\033[91mreward: {reward}\033[0m")
-        # print(f"\033[91mvalue_cost: {self.value_cost}\033[0m")
-
         # for entropy loss calculate
         # 用于熵损失计算
         label_logits_subtract_max_list = []
