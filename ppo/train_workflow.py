@@ -85,7 +85,7 @@ def run_episodes(envs, agents, logger, monitor):
             # The model used by the opponent: "common_ai" - rule-based agent, model_id - opponent model ID, see kaiwu.json for details
             # 设置评估时的对手智能体类型，默认采用了common_ai，可选择: "common_ai" - 基于规则的智能体, model_id - 对手模型的ID, 模型ID内容可在kaiwu.json里查看和设置
             # opponent_agent = "common_ai"
-            opponent_agent_list = ["common_ai", "88431", "88391"]
+            opponent_agent_list = ["common_ai", "89451", "89104", "89224"]
             opponent_agent = opponent_agent_list[random.randint(0,len(opponent_agent_list)-1)]
 
         # Generate a new set of agent configurations
