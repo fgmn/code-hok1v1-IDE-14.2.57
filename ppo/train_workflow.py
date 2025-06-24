@@ -152,7 +152,7 @@ def run_episodes(envs, agents, logger, monitor):
                 elif opponent_agent == "selfplay":
                     # Training model, "latest" - latest model, "random" - random model from the model pool
                     # 加载训练过的模型，可以选择最新模型，也可以选择随机模型 "latest" - 最新模型, "random" - 模型池中随机模型
-                    agent.load_model(id="random")
+                    agent.load_model(id="latest")
                 else:
                     # Opponent model, model_id is checked from kaiwu.json
                     # 选择kaiwu.json中设置的对手模型, model_id 即 opponent_agent，必须设置正确否则报错

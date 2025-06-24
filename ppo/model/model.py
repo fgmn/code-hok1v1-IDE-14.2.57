@@ -467,9 +467,11 @@ class Model(nn.Module):
         reward_group = usq_reward_group
         advantage2 = usq_advantage_group.sum(dim=1)
         # batch_adv_norm
-        mean = advantage2.mean()
-        var = advantage2.var(unbiased=False)
-        advantage2 = (advantage2 - mean) / torch.sqrt(var + 1e-5)
+        # mean = advantage2.mean()
+        # var = advantage2.var(unbiased=False)
+        # advantage2 = (advantage2 - mean) / torch.sqrt(var + 1e-5)
+        # adv_mean, adv_std = advantage2.mean(), advantage2.std().clamp(min=1e-8)
+        # advantage2 = (advantage2 - adv_mean) / adv_std
         old_value = usq_value.squeeze(dim=1)
         old_value_group = usq_value_group
 
